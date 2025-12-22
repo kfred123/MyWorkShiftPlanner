@@ -21,6 +21,7 @@ data class ShiftAssignment(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val date: String, // Format: "yyyy-MM-dd"
-    val shiftId: Long
+    val shiftId: Long,
+    val googleCalendarEventId: String? = null // Google Calendar event ID for syncing
 )
 

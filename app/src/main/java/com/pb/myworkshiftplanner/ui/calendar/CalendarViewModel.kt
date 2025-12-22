@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.pb.myworkshiftplanner.data.*
+import com.pb.myworkshiftplanner.utils.CalendarSyncHelper
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import org.threeten.bp.LocalDate
@@ -24,6 +25,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val shiftRepository = ShiftRepository(database.shiftDao())
     private val assignmentRepository = ShiftAssignmentRepository(database.shiftAssignmentDao())
     private val actualWorkTimeRepository = ActualWorkTimeRepository(database.actualWorkTimeDao())
+    private val settingsRepository = SettingsRepository(application)
 
     private val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
@@ -97,16 +99,88 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         val dateString = selectedDate.format(dateFormatter)
 
         viewModelScope.launch {
+            val existing = assignmentRepository.getAssignmentByDate(dateString)
+
             if (shiftId == null) {
                 // Remove assignment
-                assignmentRepository.deleteByDate(dateString)
-            } else {
-                // Create or update assignment
-                val existing = assignmentRepository.getAssignmentByDate(dateString)
                 if (existing != null) {
-                    assignmentRepository.update(existing.copy(shiftId = shiftId))
+                    // Delete from Google Calendar if event exists
+                    existing.googleCalendarEventId?.let { eventId ->
+                        CalendarSyncHelper.deleteCalendarEvent(
+                            getApplication(),
+                            eventId
+                        )
+                    }
+                    assignmentRepository.deleteByDate(dateString)
+                }
+            } else {
+                // Get the shift details
+                val shift = _uiState.value.allShifts.find { it.id == shiftId }
+                if (shift == null) return@launch
+
+                // Get selected calendar ID
+                val calendarId = settingsRepository.selectedCalendarId.first()
+
+                if (existing != null) {
+                    // Update existing assignment
+                    val updatedAssignment = if (calendarId != null && CalendarSyncHelper.hasWriteCalendarPermission(getApplication())) {
+                        // Sync with Google Calendar
+                        if (existing.googleCalendarEventId != null) {
+                            // Update existing calendar event
+                            val success = CalendarSyncHelper.updateCalendarEvent(
+                                getApplication(),
+                                calendarId,
+                                existing.googleCalendarEventId,
+                                existing.id,
+                                dateString,
+                                shift
+                            )
+                            if (success) {
+                                existing.copy(shiftId = shiftId)
+                            } else {
+                                existing.copy(shiftId = shiftId, googleCalendarEventId = null)
+                            }
+                        } else {
+                            // Create new calendar event
+                            val eventId = CalendarSyncHelper.createCalendarEvent(
+                                getApplication(),
+                                calendarId,
+                                existing.id,
+                                dateString,
+                                shift
+                            )
+                            existing.copy(shiftId = shiftId, googleCalendarEventId = eventId)
+                        }
+                    } else {
+                        // No calendar sync
+                        existing.copy(shiftId = shiftId)
+                    }
+                    assignmentRepository.update(updatedAssignment)
                 } else {
-                    assignmentRepository.insert(ShiftAssignment(date = dateString, shiftId = shiftId))
+                    // Create new assignment
+                    val newAssignment = ShiftAssignment(
+                        date = dateString,
+                        shiftId = shiftId,
+                        googleCalendarEventId = null
+                    )
+                    val assignmentId = assignmentRepository.insert(newAssignment)
+
+                    // Sync with Google Calendar
+                    if (calendarId != null && CalendarSyncHelper.hasWriteCalendarPermission(getApplication())) {
+                        val eventId = CalendarSyncHelper.createCalendarEvent(
+                            getApplication(),
+                            calendarId,
+                            assignmentId,
+                            dateString,
+                            shift
+                        )
+                        // Update assignment with event ID
+                        if (eventId != null) {
+                            assignmentRepository.update(
+                                newAssignment.copy(id = assignmentId, googleCalendarEventId = eventId)
+                            )
+                        }
+                    }
                 }
             }
         }
