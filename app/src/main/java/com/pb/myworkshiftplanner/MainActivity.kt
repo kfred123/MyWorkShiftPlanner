@@ -135,6 +135,7 @@ fun MainScreen(viewModel: CalendarViewModel = viewModel()) {
                 CalendarGrid(
                     currentMonth = uiState.currentMonth,
                     assignments = uiState.assignments,
+                    actualWorkTimes = uiState.actualWorkTimes,
                     onDateClick = { date -> viewModel.selectDate(date) }
                 )
             }
@@ -200,6 +201,7 @@ fun CalendarHeader(
 fun CalendarGrid(
     currentMonth: YearMonth,
     assignments: Map<String, Shift>,
+    actualWorkTimes: Map<String, ActualWorkTime>,
     onDateClick: (LocalDate) -> Unit
 ) {
     val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
@@ -248,12 +250,16 @@ fun CalendarGrid(
                 val date = currentMonth.atDay(day)
                 val dateString = date.format(dateFormatter)
                 val shift = assignments[dateString]
+                val actualWorkTime = actualWorkTimes[dateString]
                 val isToday = date == LocalDate.now()
+                val isPast = date.isBefore(LocalDate.now())
 
                 CalendarDayCell(
                     day = day,
                     shift = shift,
+                    actualWorkTime = actualWorkTime,
                     isToday = isToday,
+                    isPast = isPast,
                     onClick = { onDateClick(date) }
                 )
             }
@@ -265,18 +271,55 @@ fun CalendarGrid(
 fun CalendarDayCell(
     day: Int,
     shift: Shift?,
+    actualWorkTime: ActualWorkTime?,
     isToday: Boolean,
+    isPast: Boolean,
     onClick: () -> Unit
 ) {
+    // Determine the background color based on actual work time
+    val backgroundColor = when {
+        shift == null -> MaterialTheme.colorScheme.surface
+        !isPast -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        actualWorkTime == null -> {
+            // No actual work time recorded - blue
+            androidx.compose.ui.graphics.Color(0xFF2196F3).copy(alpha = 0.3f)
+        }
+        else -> {
+            // Calculate actual vs planned minutes
+            val plannedMinutes = TimeCalculator.calculateWorkMinutes(
+                shift.beginTime,
+                shift.endTime,
+                shift.breakDuration
+            )
+            val actualMinutes = TimeCalculator.calculateWorkMinutes(
+                actualWorkTime.actualStartTime,
+                actualWorkTime.actualEndTime,
+                actualWorkTime.actualBreakDuration
+            )
+
+            when {
+                actualMinutes < plannedMinutes -> {
+                    // Worked less - red
+                    androidx.compose.ui.graphics.Color(0xFFF44336).copy(alpha = 0.3f)
+                }
+                actualMinutes > plannedMinutes -> {
+                    // Worked more - green
+                    androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.3f)
+                }
+                else -> {
+                    // Worked exactly as planned - default
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                }
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .aspectRatio(1f)
             .padding(2.dp)
             .background(
-                color = if (shift != null)
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                else
-                    MaterialTheme.colorScheme.surface,
+                color = backgroundColor,
                 shape = RoundedCornerShape(8.dp)
             )
             .border(
@@ -295,14 +338,16 @@ fun CalendarDayCell(
                 text = day.toString(),
                 fontSize = 16.sp,
                 fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-                color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                textDecoration = if (isPast) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
             )
             if (shift != null) {
                 Text(
                     text = shift.name,
                     fontSize = 10.sp,
                     maxLines = 1,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textDecoration = if (isPast) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
                 )
             }
         }
@@ -354,6 +399,13 @@ fun MonthlySummarySection(
             SummaryRow(
                 label = "Geplante Arbeitszeit",
                 value = TimeCalculator.formatMinutesToHoursString(summary.plannedHours).replace("+", ""),
+                valueColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // Actual worked hours
+            SummaryRow(
+                label = "Tatsächliche Arbeitszeit",
+                value = TimeCalculator.formatMinutesToHoursString(summary.actualHours).replace("+", ""),
                 valueColor = MaterialTheme.colorScheme.onSurfaceVariant
             )
 

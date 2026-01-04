@@ -17,6 +17,7 @@ data class MonthlySummary(
     val previousMonthBalance: Int = 0, // in minutes, positive = overtime, negative = deficit
     val targetHours: Int = 0, // target work minutes for current month
     val plannedHours: Int = 0, // planned work minutes for current month
+    val actualHours: Int = 0, // actual worked minutes for current month
     val difference: Int = 0 // planned - target (positive = more than target, negative = less than target)
 )
 
@@ -263,13 +264,17 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         // 3. Calculate planned hours for current month
         val plannedHours = calculatePlannedHours(month)
 
-        // 4. Calculate difference (planned - target)
+        // 4. Calculate actual worked hours for current month
+        val actualHours = calculateActualWorkedHours(month)
+
+        // 5. Calculate difference (planned - target)
         val difference = plannedHours - targetHours
 
         return MonthlySummary(
             previousMonthBalance = previousMonthBalance,
             targetHours = targetHours,
             plannedHours = plannedHours,
+            actualHours = actualHours,
             difference = difference
         )
     }
@@ -390,6 +395,55 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         }
 
         return totalMinutes
+    }
+
+    private suspend fun calculateActualWorkedHours(month: YearMonth): Int {
+        // Get all assignments and actual work times for the month
+        val startDate = month.atDay(1).format(dateFormatter)
+        val endDate = month.atEndOfMonth().format(dateFormatter)
+
+        val assignmentsMap = mutableMapOf<String, Shift>()
+        assignmentRepository.getAssignmentsInRange(startDate, endDate).first().forEach { (date, shift) ->
+            assignmentsMap[date] = shift
+        }
+
+        val actualTimesMap = mutableMapOf<String, ActualWorkTime>()
+        actualWorkTimeRepository.getActualWorkTimesInRange(startDate, endDate).first().forEach { actualTime ->
+            actualTimesMap[actualTime.date] = actualTime
+        }
+
+        // Calculate actual worked hours
+        var actualMinutes = 0
+        val firstDay = month.atDay(1)
+        val lastDay = month.atEndOfMonth()
+        var date = firstDay
+
+        while (!date.isAfter(lastDay)) {
+            val dateString = date.format(dateFormatter)
+            val actualTime = actualTimesMap[dateString]
+
+            if (actualTime != null) {
+                // Use actual work time
+                actualMinutes += TimeCalculator.calculateWorkMinutes(
+                    actualTime.actualStartTime,
+                    actualTime.actualEndTime,
+                    actualTime.actualBreakDuration
+                )
+            } else {
+                // Use planned shift if date is in the past
+                val shift = assignmentsMap[dateString]
+                if (shift != null && !date.isAfter(LocalDate.now())) {
+                    actualMinutes += TimeCalculator.calculateWorkMinutes(
+                        shift.beginTime,
+                        shift.endTime,
+                        shift.breakDuration
+                    )
+                }
+            }
+            date = date.plusDays(1)
+        }
+
+        return actualMinutes
     }
 }
 
