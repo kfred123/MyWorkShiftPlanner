@@ -89,6 +89,15 @@ fun MainScreen(viewModel: CalendarViewModel = viewModel()) {
                             }
                         )
                         DropdownMenuItem(
+                            text = { Text("Wochenarbeitszeit") },
+                            onClick = {
+                                showMenu = false
+                                context.startActivity(
+                                    Intent(context, com.pb.myworkshiftplanner.ui.workinghours.WorkingHoursActivity::class.java)
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
                             text = { Text("Einstellungen") },
                             onClick = {
                                 showMenu = false
@@ -111,18 +120,29 @@ fun MainScreen(viewModel: CalendarViewModel = viewModel()) {
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
-                .padding(16.dp)
         ) {
-            CalendarHeader(
-                currentMonth = uiState.currentMonth,
-                onPreviousMonth = { viewModel.previousMonth() },
-                onNextMonth = { viewModel.nextMonth() }
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            CalendarGrid(
-                currentMonth = uiState.currentMonth,
-                assignments = uiState.assignments,
-                onDateClick = { date -> viewModel.selectDate(date) }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(16.dp)
+            ) {
+                CalendarHeader(
+                    currentMonth = uiState.currentMonth,
+                    onPreviousMonth = { viewModel.previousMonth() },
+                    onNextMonth = { viewModel.nextMonth() }
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                CalendarGrid(
+                    currentMonth = uiState.currentMonth,
+                    assignments = uiState.assignments,
+                    onDateClick = { date -> viewModel.selectDate(date) }
+                )
+            }
+
+            // Monthly Summary Section
+            MonthlySummarySection(
+                summary = uiState.monthlySummary,
+                modifier = Modifier.padding(16.dp)
             )
         }
 
@@ -286,6 +306,99 @@ fun CalendarDayCell(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun MonthlySummarySection(
+    summary: com.pb.myworkshiftplanner.ui.calendar.MonthlySummary,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = "Monatsübersicht",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // Previous month balance
+            SummaryRow(
+                label = "Über-/Minusstunden Vormonat",
+                value = TimeCalculator.formatMinutesToHoursString(summary.previousMonthBalance),
+                valueColor = when {
+                    summary.previousMonthBalance > 0 -> MaterialTheme.colorScheme.primary
+                    summary.previousMonthBalance < 0 -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // Target hours
+            SummaryRow(
+                label = "Soll-Arbeitszeit",
+                value = TimeCalculator.formatMinutesToHoursString(summary.targetHours).replace("+", ""),
+                valueColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // Planned hours
+            SummaryRow(
+                label = "Geplante Arbeitszeit",
+                value = TimeCalculator.formatMinutesToHoursString(summary.plannedHours).replace("+", ""),
+                valueColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // Difference
+            SummaryRow(
+                label = "Differenz (Plan - Soll)",
+                value = TimeCalculator.formatMinutesToHoursString(summary.difference),
+                valueColor = when {
+                    summary.difference > 0 -> MaterialTheme.colorScheme.primary
+                    summary.difference < 0 -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                isBold = true
+            )
+        }
+    }
+}
+
+@Composable
+fun SummaryRow(
+    label: String,
+    value: String,
+    valueColor: androidx.compose.ui.graphics.Color,
+    isBold: Boolean = false
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
+            color = valueColor
+        )
     }
 }
 

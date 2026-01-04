@@ -36,6 +36,11 @@
             android:exported="false"
             android:label="Einstellungen"
             android:theme="@style/Theme.MyWorkShiftPlanner" />
+        <activity
+            android:name=".ui.workinghours.WorkingHoursActivity"
+            android:exported="false"
+            android:label="Wochenarbeitszeit"
+            android:theme="@style/Theme.MyWorkShiftPlanner" />
     </application>
 
 </manifest>
